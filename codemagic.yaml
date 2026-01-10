@@ -1,11 +1,8 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS App Store Build
+    name: iOS Build (No Upload)
     max_build_duration: 60
     environment:
-      vars:
-        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
-        XCODE_SCHEME: "App"
       node: latest
       xcode: latest
       cocoapods: default
@@ -19,15 +16,11 @@
       - name: Build iOS app
         script: |
           xcodebuild \
-            -workspace "" \
-            -scheme "" \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
             -configuration Release \
             -sdk iphoneos \
             -archivePath build/App.xcarchive \
             archive
     artifacts:
       - build/**/*.xcarchive
-      - build/**/*.ipa
-    publishing:
-      app_store_connect:
-        auth: integration
