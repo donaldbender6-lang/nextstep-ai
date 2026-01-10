@@ -10,10 +10,12 @@
       - name: Install dependencies
         script: |
           npm install
+
       - name: Sync Capacitor
         script: |
           npx cap sync ios
-         - name: Build iOS app
+
+      - name: Build iOS app
         script: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
@@ -24,5 +26,6 @@
             DEVELOPMENT_TEAM=CKDUJJL6BZ \
             CODE_SIGN_STYLE=Automatic \
             archive
+
     artifacts:
       - build/**/*.xcarchive
