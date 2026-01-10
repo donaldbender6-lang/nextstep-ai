@@ -23,9 +23,7 @@
             -configuration Release \
             -sdk iphoneos \
             -archivePath build/App.xcarchive \
-            -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM=CKDUJJL6BZ \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
             archive
 
     artifacts:
