@@ -1,11 +1,18 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (No Upload)
+    name: iOS Build (Manual Signing)
     max_build_duration: 60
+
     environment:
       node: latest
       xcode: latest
       cocoapods: default
+      vars:
+        TEAM_ID: "CKDUJJL6BZ"
+        BUNDLE_ID: "com.donal.nextstepai"
+        PROFILE_NAME: "nextstep-ai-appstore"
+        PROFILE_FILE: "ios-signing/nextstep-ai-appstore.mobileprovision"
+
     scripts:
       - name: Install dependencies
         script: |
@@ -15,16 +22,49 @@
         script: |
           npx cap sync ios
 
+      - name: Install provisioning profile
+        script: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_FILE" "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
+      - name: Create exportOptions.plist
+        script: |
+          cat > exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+
+            <key>signingStyle</key>
+            <string>manual</string>
+
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
       - name: Build iOS app (archive + export)
         script: |
+          set -e
+
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
-            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=CKDUJJL6BZ \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             archive
 
           xcodebuild \
@@ -34,8 +74,6 @@
             -exportPath build/export
 
     artifacts:
-      - build/**/*.xcarchive
-
-    artifacts:
       - build/export/*.ipa
       - build/**/*.xcarchive
+      - exportOptions.plist
