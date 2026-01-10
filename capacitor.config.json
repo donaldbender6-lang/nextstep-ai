@@ -1,0 +1,9 @@
+﻿{
+  "appId": "com.donal.nextstepai",
+  "appName": "NextStep AI",
+  "webDir": "www",
+  "server": {
+    "url": "https://daily-ai-guide-40.lovable.app/",
+    "cleartext": false
+  }
+}
