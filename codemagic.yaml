@@ -15,7 +15,7 @@
         script: |
           npx cap sync ios
 
-      - name: Build iOS app
+      - name: Build iOS app (archive + export)
         script: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
@@ -24,7 +24,18 @@
             -sdk iphoneos \
             -archivePath build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=CKDUJJL6BZ \
             archive
 
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath build/export
+
     artifacts:
+      - build/**/*.xcarchive
+
+    artifacts:
+      - build/export/*.ipa
       - build/**/*.xcarchive
