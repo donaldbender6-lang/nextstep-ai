@@ -32,19 +32,6 @@
         script: |
           npx cap sync ios
 
-      - name: Debug env (names only)
-        script: |
-          echo "=== CM CONTEXT ==="
-          echo "CM_WORKFLOW_NAME=${CM_WORKFLOW_NAME:-}"
-          echo "CM_BRANCH=${CM_BRANCH:-}"
-          echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
-          echo "CM_REPO_SLUG=${CM_REPO_SLUG:-}"
-          echo "=================="
-
-          echo "=== IOS VAR NAMES PRESENT (no values) ==="
-          env | cut -d= -f1 | sort | grep -E '^IOS_' || true
-          echo "========================================"
-
       - name: Import signing certificate + provisioning profile
         script: |
           set -euo pipefail
@@ -56,14 +43,31 @@
           keychain initialize
 
           echo "$IOS_CERT_P12_B64" | base64 --decode > /tmp/cert.p12
-          keychain add-certificates --certificate /tmp/cert.p12 --certificate-password "$IOS_CERT_PASSWORD"
+          keychain add-certificates \
+            --certificate /tmp/cert.p12 \
+            --certificate-password "$IOS_CERT_PASSWORD"
+
+          # Decode provisioning profile
+          PROFILE_TMP="/tmp/profile.mobileprovision"
+          echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_TMP"
+
+          # Extract UUID + Name from the provisioning profile and install it correctly
+          PROFILE_PLIST="$(security cms -D -i "$PROFILE_TMP")"
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" || true)
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$IOS_PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/		  ${PROFILE_NAME}.mobileprovision"
+          cp "$PROFILE_TMP" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+
+          echo "Installed provisioning profile:"
+          echo "  UUID: $UUID"
+          echo "  Name: ${NAME:-<unknown>}"
+          echo "  Expected PROFILE_NAME (specifier): ${PROFILE_NAME}"
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
-          echo "=== PROFILES ==="
+
+          echo "=== PROFILES (directory listing) ==="
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
 
       - name: Create exportOptions.plist
@@ -114,4 +118,3 @@
       - build/export/*.ipa
       - build/**/*.xcarchive
       - exportOptions.plist
-s
