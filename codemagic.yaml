@@ -59,7 +59,7 @@
           keychain add-certificates --certificate /tmp/cert.p12 --certificate-password "$IOS_CERT_PASSWORD"
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$IOS_PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_NAME}.mobileprovision"
+          echo "$IOS_PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/		  ${PROFILE_NAME}.mobileprovision"
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
