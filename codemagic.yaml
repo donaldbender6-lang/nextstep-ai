@@ -43,6 +43,12 @@
           </plist>
           EOF
 
+      - name: Install provisioning profile
+        script: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$CM_SECURE_FILES_PATH/nextstepaiappstore" \
+             "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
       - name: Build iOS app (archive + export)
         script: |
           set -e
