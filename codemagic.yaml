@@ -7,19 +7,26 @@
       node: latest
       xcode: latest
       cocoapods: default
+      groups:
+        - ios_signing
       vars:
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
 
     scripts:
-      - name: Debug environment (names only)
+      - name: Debug env (confirm group injection)
         script: |
-          echo "WORKFLOW + BRANCH:"
           echo "CM_WORKFLOW_NAME=${CM_WORKFLOW_NAME:-}"
           echo "CM_BRANCH=${CM_BRANCH:-}"
           echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
           echo "CM_REPO_SLUG=${CM_REPO_SLUG:-}"
+
+          if [ -n "${IOS_CERT_P12_B64:-}" ]; then
+            echo "IOS_CERT_P12_B64: PRESENT"
+          else
+            echo "IOS_CERT_P12_B64: MISSING"
+          fi
 
           echo "IOS VARS PRESENT (names only):"
           env | cut -d= -f1 | sort | grep -E '^IOS_' || true
@@ -47,11 +54,9 @@
             --certificate /tmp/cert.p12 \
             --certificate-password "$IOS_CERT_PASSWORD"
 
-          # Decode provisioning profile
           PROFILE_TMP="/tmp/profile.mobileprovision"
           echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_TMP"
 
-          # Extract UUID + Name from the provisioning profile and install it correctly
           PROFILE_PLIST="$(security cms -D -i "$PROFILE_TMP")"
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")
           NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" || true)
@@ -66,8 +71,7 @@
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
-
-          echo "=== PROFILES (directory listing) ==="
+          echo "=== PROFILES ==="
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
 
       - name: Create exportOptions.plist
