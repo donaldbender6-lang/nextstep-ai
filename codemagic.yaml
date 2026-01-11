@@ -43,7 +43,7 @@
           </plist>
           EOF
 
-       - name: Install provisioning profile
+      - name: Install provisioning profile
         script: |
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp ios-signing/nextstep-ai-appstore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
