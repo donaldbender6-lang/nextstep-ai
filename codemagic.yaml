@@ -26,15 +26,15 @@
         script: |
           npx cap sync ios
 
-      - name: Set up code signing (KEY STEP)
+      - name: Set up code signing (Codemagic)
         script: |
           set -e
           keychain initialize
           xcode-project use-profiles
 
-          echo "=== AVAILABLE SIGNING IDENTITIES ==="
+          echo "=== SIGNING IDENTITIES (after setup) ==="
           security find-identity -v -p codesigning || true
-          echo "==================================="
+          echo "======================================="
 
       - name: Create exportOptions.plist
         script: |
@@ -44,16 +44,11 @@
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
+            <string>app-store-connect</string>
             <key>teamID</key>
             <string>${TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
+            <key>compileBitcode</key>
+            <false/>
           </dict>
           </plist>
           EOF
@@ -69,6 +64,10 @@
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             archive
+
+          echo "=== SIGNING IDENTITIES (before export) ==="
+          security find-identity -v -p codesigning || true
+          echo "========================================="
 
           xcodebuild \
             -exportArchive \
