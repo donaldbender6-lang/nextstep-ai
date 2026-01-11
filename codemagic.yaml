@@ -1,36 +1,18 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Manual Signing)
+    name: iOS Build (App Store - Codemagic Managed Signing)
     max_build_duration: 60
 
     environment:
       node: latest
       xcode: latest
       cocoapods: default
-      groups:
-        - ios_signing
       vars:
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
 
     scripts:
-      - name: Debug env (confirm group injection)
-        script: |
-          echo "CM_WORKFLOW_NAME=${CM_WORKFLOW_NAME:-}"
-          echo "CM_BRANCH=${CM_BRANCH:-}"
-          echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
-          echo "CM_REPO_SLUG=${CM_REPO_SLUG:-}"
-
-          if [ -n "${IOS_CERT_P12_B64:-}" ]; then
-            echo "IOS_CERT_P12_B64: PRESENT"
-          else
-            echo "IOS_CERT_P12_B64: MISSING"
-          fi
-
-          echo "IOS VARS PRESENT (names only):"
-          env | cut -d= -f1 | sort | grep -E '^IOS_' || true
-
       - name: Install dependencies
         script: |
           npm install
@@ -38,41 +20,6 @@
       - name: Sync Capacitor
         script: |
           npx cap sync ios
-
-      - name: Import signing certificate + provisioning profile
-        script: |
-          set -euo pipefail
-
-          : "${IOS_CERT_P12_B64:?Missing IOS_CERT_P12_B64}"
-          : "${IOS_CERT_PASSWORD:?Missing IOS_CERT_PASSWORD}"
-          : "${IOS_PROFILE_B64:?Missing IOS_PROFILE_B64}"
-
-          keychain initialize
-
-          echo "$IOS_CERT_P12_B64" | base64 --decode > /tmp/cert.p12
-          keychain add-certificates \
-            --certificate /tmp/cert.p12 \
-            --certificate-password "$IOS_CERT_PASSWORD"
-
-          PROFILE_TMP="/tmp/profile.mobileprovision"
-          echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_TMP"
-
-          PROFILE_PLIST="$(security cms -D -i "$PROFILE_TMP")"
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")
-          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" || true)
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_TMP" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-
-          echo "Installed provisioning profile:"
-          echo "  UUID: $UUID"
-          echo "  Name: ${NAME:-<unknown>}"
-          echo "  Expected PROFILE_NAME (specifier): ${PROFILE_NAME}"
-
-          echo "=== SIGNING IDENTITIES ==="
-          security find-identity -v -p codesigning || true
-          echo "=== PROFILES ==="
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
 
       - name: Create exportOptions.plist
         script: |
@@ -82,7 +29,7 @@
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store-connect</string>
+            <string>app-store</string>
             <key>teamID</key>
             <string>${TEAM_ID}</string>
             <key>signingStyle</key>
@@ -107,9 +54,9 @@
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
             archive
 
           xcodebuild \
