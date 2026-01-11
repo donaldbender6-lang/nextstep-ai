@@ -7,10 +7,17 @@
       node: latest
       xcode: latest
       cocoapods: default
+
       vars:
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
+
+      # Tells Codemagic to fetch the uploaded signing files (cert + profile)
+      # that match this distribution type + bundle id.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: "com.donal.nextstepai"
 
     scripts:
       - name: Install dependencies
@@ -21,57 +28,18 @@
         script: |
           npx cap sync ios
 
+      # Initializes a keychain and applies the fetched profiles to the Xcode project.
+      # This is the step your current YAML is missing (you only copied the profile).
+      - name: Set up code signing (Codemagic)
+        script: |
+          keychain initialize
+          xcode-project use-profiles
+
+          # Optional: visibility/debug
+          security find-identity -v -p codesigning || true
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+
       - name: Create exportOptions.plist
         script: |
           cat > exportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
-          </dict>
-          </plist>
-          EOF
-
-      - name: Install provisioning profile
-        script: |
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp ios-signing/nextstep-ai-appstore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
-
-
-      - name: Build iOS app (archive + export)
-        script: |
-          set -e
-
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath build/App.xcarchive \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="${TEAM_ID}" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            archive
-
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/App.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath build/export
-
-    artifacts:
-      - build/export/*.ipa
-      - build/**/*.xcarchive
-      - exportOptions.plist
