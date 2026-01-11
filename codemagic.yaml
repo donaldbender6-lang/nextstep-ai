@@ -25,13 +25,16 @@
         script: |
           set -euo pipefail
 
-          : "${IOS_CERT_P12_B64:?Missing env var IOS_CERT_P12_B64 (base64 of .p12)}"
-          : "${IOS_CERT_PASSWORD:?Missing env var IOS_CERT_PASSWORD (p12 password)}"
-          : "${IOS_PROFILE_B64:?Missing env var IOS_PROFILE_B64 (base64 of .mobileprovision)}"
+          echo "ENV VAR NAMES FOUND:"
+          env | cut -d= -f1 | sort | grep -E 'IOS_PROFILE_B64|IOS_CERT_P12_B64|IOS_CERT_PASSWORD' || true
+
+          : "${IOS_CERT_P12_B64:?Missing IOS_CERT_P12_B64}"
+          : "${IOS_CERT_PASSWORD:?Missing IOS_CERT_PASSWORD}"
+          : "${IOS_PROFILE_B64:?Missing IOS_PROFILE_B64}"
 
           keychain initialize
 
-          # Import cert (.p12) into Codemagic keychain
+          # Import cert (.p12)
           echo "$IOS_CERT_P12_B64" | base64 --decode > /tmp/cert.p12
           keychain add-certificates --certificate /tmp/cert.p12 --certificate-password "$IOS_CERT_PASSWORD"
 
@@ -81,10 +84,6 @@
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
-
-          echo "=== SIGNING IDENTITIES (before export) ==="
-          security find-identity -v -p codesigning || true
-          echo "========================================="
 
           xcodebuild \
             -exportArchive \
