@@ -1,6 +1,6 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (Codemagic Signing)
+    name: iOS Build (App Store)
     max_build_duration: 60
 
     environment:
@@ -13,8 +13,6 @@
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
 
-      # Tells Codemagic to fetch the uploaded signing files (cert + profile)
-      # that match this distribution type + bundle id.
       ios_signing:
         distribution_type: app_store
         bundle_identifier: "com.donal.nextstepai"
@@ -28,18 +26,8 @@
         script: |
           npx cap sync ios
 
-      # Initializes a keychain and applies the fetched profiles to the Xcode project.
-      # This is the step your current YAML is missing (you only copied the profile).
-      - name: Set up code signing (Codemagic)
+      - name: Set up code signing (KEY STEP)
         script: |
+          set -e
           keychain initialize
-          xcode-project use-profiles
-
-          # Optional: visibility/debug
-          security find-identity -v -p codesigning || true
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
-
-      - name: Create exportOptions.plist
-        script: |
-          cat > exportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
+          xcode-pr
