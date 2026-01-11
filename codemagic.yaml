@@ -30,4 +30,53 @@
         script: |
           set -e
           keychain initialize
-          xcode-pr
+          xcode-project use-profiles
+
+          echo "=== AVAILABLE SIGNING IDENTITIES ==="
+          security find-identity -v -p codesigning || true
+          echo "==================================="
+
+      - name: Create exportOptions.plist
+        script: |
+          cat > exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build iOS app (archive + export)
+        script: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/App.xcarchive \
+            archive
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath build/export
+
+    artifacts:
+      - build/export/*.ipa
+      - build/**/*.xcarchive
+      - exportOptions.plist
