@@ -7,12 +7,29 @@
       node: latest
       xcode: latest
       cocoapods: default
+
+      # IMPORTANT:
+      # Put IOS_CERT_P12_B64, IOS_CERT_PASSWORD, IOS_PROFILE_B64 into this Codemagic Variable Group
+      groups:
+        - ios-signing
+
       vars:
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
 
     scripts:
+      - name: Debug environment (names only)
+        script: |
+          echo "WORKFLOW + BRANCH:"
+          echo "CM_WORKFLOW_NAME=${CM_WORKFLOW_NAME:-}"
+          echo "CM_BRANCH=${CM_BRANCH:-}"
+          echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
+          echo "CM_REPO_SLUG=${CM_REPO_SLUG:-}"
+
+          echo "IOS VARS PRESENT (names only):"
+          env | cut -d= -f1 | sort | grep -E '^IOS_' || true
+
       - name: Install dependencies
         script: |
           npm install
@@ -24,9 +41,6 @@
       - name: Import signing certificate + provisioning profile
         script: |
           set -euo pipefail
-
-          echo "ENV VAR NAMES FOUND:"
-          env | cut -d= -f1 | sort | grep -E 'IOS_PROFILE_B64|IOS_CERT_P12_B64|IOS_CERT_PASSWORD' || true
 
           : "${IOS_CERT_P12_B64:?Missing IOS_CERT_P12_B64}"
           : "${IOS_CERT_PASSWORD:?Missing IOS_CERT_PASSWORD}"
