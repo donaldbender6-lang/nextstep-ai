@@ -11,7 +11,6 @@
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
         PROFILE_NAME: "nextstep-ai-appstore"
-        PROFILE_FILE: "ios-signing/nextstep-ai-appstore.mobileprovision"
 
     scripts:
       - name: Install dependencies
@@ -22,11 +21,6 @@
         script: |
           npx cap sync ios
 
-      - name: Install provisioning profile
-        script: |
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_FILE" "$HOME/Library/MobileDevice/Provisioning Profiles/"
-
       - name: Create exportOptions.plist
         script: |
           cat > exportOptions.plist <<EOF
@@ -36,13 +30,10 @@
           <dict>
             <key>method</key>
             <string>app-store</string>
-
             <key>signingStyle</key>
             <string>manual</string>
-
             <key>teamID</key>
             <string>${TEAM_ID}</string>
-
             <key>provisioningProfiles</key>
             <dict>
               <key>${BUNDLE_ID}</key>
@@ -52,7 +43,7 @@
           </plist>
           EOF
 
-         - name: Build iOS app (archive + export)
+      - name: Build iOS app (archive + export)
         script: |
           set -e
 
@@ -63,8 +54,8 @@
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=CKDUJJL6BZ \
-            PROVISIONING_PROFILE_SPECIFIER="nextstep-ai-appstore" \
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
