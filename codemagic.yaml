@@ -52,7 +52,7 @@
           </plist>
           EOF
 
-      - name: Build iOS app (archive + export)
+         - name: Build iOS app (archive + export)
         script: |
           set -e
 
@@ -63,8 +63,9 @@
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            DEVELOPMENT_TEAM=CKDUJJL6BZ \
+            PROVISIONING_PROFILE_SPECIFIER="nextstep-ai-appstore" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
           xcodebuild \
