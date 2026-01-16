@@ -1,71 +1,216 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Codemagic Managed Signing)
+    name: iOS Build (App Store - Manual Signing)
     max_build_duration: 60
+    instance_type: mac_mini_m2
 
     environment:
       node: latest
       xcode: latest
-      cocoapods: default
+
       vars:
+        # ====== YOUR APP SETTINGS ======
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
-        PROFILE_NAME: "nextstep-ai-appstore"
+        PROFILE_SPECIFIER: "nextstep-ai-appstore"
+        SCHEME: "App"
+        CONFIGURATION: "Release"
+
+        # ====== EXPECTED SECRETS (SET IN CI UI) ======
+        # IOS_CERT_P12_B64      : base64 of your .p12
+        # IOS_CERT_PASSWORD     : password for the .p12 (can be empty if none)
+        # IOS_PROFILE_B64       : base64 of your .mobileprovision
 
     scripts:
+      - name: Debug environment (names only)
+        script: |
+          set -e
+          echo "WORKFLOW + BRANCH:"
+          echo "CM_WORKFLOW_NAME=${CM_WORKFLOW_NAME:-}"
+          echo "CM_BRANCH=${CM_BRANCH:-}"
+          echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
+          echo "CM_REPO_SLUG=${CM_REPO_SLUG:-}"
+
+          echo "KEY VARS:"
+          echo "TEAM_ID=$TEAM_ID"
+          echo "BUNDLE_ID=$BUNDLE_ID"
+          echo "PROFILE_SPECIFIER=$PROFILE_SPECIFIER"
+          echo "SCHEME=$SCHEME"
+          echo "CONFIGURATION=$CONFIGURATION"
+
+          echo "SECRETS PRESENT:"
+          for v in IOS_CERT_P12_B64 IOS_CERT_PASSWORD IOS_PROFILE_B64; do
+            if [ -n "${!v:-}" ]; then echo "  $v=YES"; else echo "  $v=NO"; fi
+          done
+
       - name: Install dependencies
         script: |
-          npm install
+          set -e
+          npm ci
 
       - name: Sync Capacitor
         script: |
+          set -e
           npx cap sync ios
 
-      - name: Create exportOptions.plist
+      - name: Import signing certificate + provisioning profile
         script: |
-          cat > exportOptions.plist <<EOF
+          set -euo pipefail
+
+          # ---- Validate required env vars ----
+          : "${IOS_CERT_P12_B64:?Missing env var IOS_CERT_P12_B64 (base64 of .p12)}"
+          : "${IOS_PROFILE_B64:?Missing env var IOS_PROFILE_B64 (base64 of .mobileprovision)}"
+          # IOS_CERT_PASSWORD can be empty
+
+          KEYCHAIN_PATH="$HOME/Library/Keychains/build.keychain-db"
+          KEYCHAIN_PASSWORD="codemagic"
+
+          CERT_P12_PATH="$HOME/cert.p12"
+          PROFILE_PATH="$HOME/profile.mobileprovision"
+          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          echo "Creating temporary keychain..."
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+
+          echo "Decoding certificate (.p12)..."
+          echo "$IOS_CERT_P12_B64" | base64 --decode > "$CERT_P12_PATH"
+
+          echo "Importing certificate into keychain..."
+          security import "$CERT_P12_PATH" -k "$KEYCHAIN_PATH" -P "${IOS_CERT_PASSWORD:-}" -T /usr/bin/codesign -T /usr/bin/security
+
+          echo "Allowing codesign to access the key..."
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "Decoding provisioning profile (.mobileprovision)..."
+          mkdir -p "$PP_DIR"
+          echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_PATH"
+
+          echo "Extracting profile UUID + Name (sanity check)..."
+          PROFILE_PLIST="$(/usr/bin/security cms -D -i "$PROFILE_PATH")"
+          UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")"
+          NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST")"
+          APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_PLIST")"
+
+          echo "  Profile UUID: $UUID"
+          echo "  Profile Name: $NAME"
+          echo "  application-identifier: $APP_ID"
+
+          echo "Installing provisioning profile..."
+          cp "$PROFILE_PATH" "$PP_DIR/$UUID.mobileprovision"
+
+          echo "Installed profiles:"
+          ls -la "$PP_DIR" || true
+
+          echo "Available code signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+
+          echo "IMPORTANT: Your PROFILE_SPECIFIER must equal the Profile Name above."
+          echo "If NAME != $PROFILE_SPECIFIER, update PROFILE_SPECIFIER or rename/re-download the profile."
+
+      - name: Build iOS app (archive)
+        script: |
+          set -euo pipefail
+
+          # ---- Locate your Xcode project/workspace ----
+          # Common Capacitor locations:
+          #   ios/App/App.xcworkspace (CocoaPods)
+          #   ios/App/App.xcodeproj
+          #   ios/App/CapApp-SPM (SPM)
+          if [ -d "ios/App/App.xcworkspace" ]; then
+            BUILD_CONTAINER=(-workspace "ios/App/App.xcworkspace")
+          elif [ -f "ios/App/App.xcodeproj/project.pbxproj" ]; then
+            BUILD_CONTAINER=(-project "ios/App/App.xcodeproj")
+          elif [ -f "ios/App/App.xcodeproj" ]; then
+            BUILD_CONTAINER=(-project "ios/App/App.xcodeproj")
+          elif [ -d "ios/App/CapApp-SPM" ]; then
+            # Fallback; if you use a different path, adjust here.
+            BUILD_CONTAINER=(-project "ios/App/App.xcodeproj")
+          else
+            echo "Could not find Xcode project/workspace under ios/App"
+            find ios -maxdepth 4 -name "*.xcworkspace" -o -name "*.xcodeproj" || true
+            exit 1
+          fi
+
+          echo "Using: ${BUILD_CONTAINER[*]}"
+
+          ARCHIVE_PATH="$PWD/build/App.xcarchive"
+          EXPORT_PATH="$PWD/build/export"
+          EXPORT_OPTIONS_PLIST="$PWD/ExportOptions.plist"
+
+          mkdir -p build
+
+          # ---- Export options for App Store ----
+          cat > "$EXPORT_OPTIONS_PLIST" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key>
             <string>app-store</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
             <key>signingStyle</key>
             <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>destination</key>
+            <string>export</string>
           </dict>
           </plist>
-          EOF
+          PLIST
 
-      - name: Build iOS app (archive + export)
-        script: |
-          set -euo pipefail
-
+          echo "Archiving..."
           xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Release \
+            "${BUILD_CONTAINER[@]}" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
             -destination "generic/platform=iOS" \
-            -archivePath build/App.xcarchive \
-            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_SPECIFIER" \
             archive
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/App.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath build/export
+          echo "Exporting IPA..."
+          rm -rf "$EXPORT_PATH"
+          mkdir -p "$EXPORT_PATH"
+
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST"
+
+          echo "Export results:"
+          ls -la "$EXPORT_PATH" || true
+
+      - name: Collect build artifacts
+        script: |
+          set -e
+          mkdir -p artifacts
+          # Copy IPA if present
+          if ls build/export/*.ipa >/dev/null 2>&1; then
+            cp -v build/export/*.ipa artifacts/
+          fi
+          # Copy dSYMs if present
+          if [ -d "build/App.xcarchive/dSYMs" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "build/App.xcarchive/dSYMs" "artifacts/dSYMs.zip"
+          fi
+          ls -la artifacts || true
 
     artifacts:
-      - build/export/*.ipa
-      - build/**/*.xcarchive
-      - exportOptions.plist
+      - artifacts/*.ipa
+      - artifacts/*.zip
+      - build/export/**
+
+    publishing:
+      email:
+        recipients:
+          - "your@email.com"
+        notify:
+          success: true
+          failure: true
