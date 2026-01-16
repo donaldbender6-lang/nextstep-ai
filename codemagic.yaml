@@ -1,6 +1,6 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Codemagic Signing)
+    name: iOS Build (App Store - Codemagic Signing + UUID)
     max_build_duration: 60
 
     environment:
@@ -9,6 +9,7 @@
       cocoapods: default
       vars:
         TEAM_ID: "CKDUJJL6BZ"
+        BUNDLE_ID: "com.donal.nextstepai"
 
     scripts:
       - name: Install dependencies
@@ -19,30 +20,47 @@
         script: |
           npx cap sync ios
 
-      - name: Install signing assets (Codemagic)
+      - name: Setup code signing (Codemagic)
         script: |
           set -euo pipefail
           keychain initialize
-          keychain add-certificates
           xcode-project use-profiles --verbose
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
 
-          echo "=== PROVISIONING PROFILES ==="
+          echo "=== PROFILES ==="
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
 
-          # Fail hard if Codemagic did not inject signing assets
-          IDS="$(security find-identity -v -p codesigning 2>/dev/null | grep -c 'valid identities found' || true)"
-          COUNT="$(ls -1 "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision 2>/dev/null | wc -l | tr -d ' ')"
-          if [ "$COUNT" = "0" ]; then
-            echo "ERROR: No provisioning profiles installed. Codemagic did not inject code signing assets into this build."
+      - name: Find installed provisioning profile UUID for bundle id
+        script: |
+          set -euo pipefail
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          UUID=""
+          for f in "$PROFILE_DIR"/*.mobileprovision; do
+            [ -e "$f" ] || continue
+
+            PLIST="$(security cms -D -i "$f")"
+            APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PLIST" 2>/dev/null || true)
+            TEAM=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' /dev/stdin <<< "$PLIST" 2>/dev/null || true)
+            THIS_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PLIST" 2>/dev/null || true)
+
+            if [[ "$TEAM" == "${TEAM_ID}" && "$APP_ID" == "${TEAM_ID}.${BUNDLE_ID}" ]]; then
+              echo "PROFILE_UUID=$THIS_UUID" >> "$CM_ENV"
+              break
+            fi
+          done
+
+          if [ -z "${PROFILE_UUID:-}" ]; then
+            echo "No matching installed profile found for ${TEAM_ID}.${BUNDLE_ID}"
             exit 1
           fi
 
       - name: Build iOS app (archive)
         script: |
           set -euo pipefail
+
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
@@ -50,6 +68,10 @@
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE="${PROFILE_UUID}" \
             archive
 
       - name: Export IPA
@@ -65,6 +87,8 @@
             <string>app-store</string>
             <key>teamID</key>
             <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
           </dict>
           </plist>
           EOF
