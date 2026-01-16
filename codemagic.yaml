@@ -1,6 +1,6 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Manual Signing UUID)
+    name: iOS Build (App Store - Codemagic Signing + UUID)
     max_build_duration: 60
 
     environment:
@@ -20,16 +20,31 @@
         script: |
           npx cap sync ios
 
-      - name: Apply Codemagic code signing (install profiles/certs)
+      - name: Apply Codemagic code signing (force install profiles/certs)
         script: |
           set -euo pipefail
           keychain initialize
-          xcode-project use-profiles
 
-          echo "=== PROFILES DIRECTORY ==="
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          # This is the critical step: it pulls the cert/profile you've uploaded in Codemagic UI
+          # and wires them into the Xcode project.
+          xcode-project use-profiles --verbose
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+
+          echo "=== PROFILES DIRECTORY (after use-profiles) ==="
+          ls -la "$PROFILE_DIR" || true
+
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
+
+          # Hard fail early if Codemagic still didn't install profiles
+          COUNT="$(ls -1 "$PROFILE_DIR"/*.mobileprovision 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "$COUNT" = "0" ]; then
+            echo "ERROR: No provisioning profiles installed on the build machine."
+            echo "Fix in Codemagic UI: ensure the App Store provisioning profile for ${BUNDLE_ID} is attached to this workflow/build and not blocked (e.g., PR build)."
+            exit 1
+          fi
 
       - name: Find installed provisioning profile UUID for bundle id
         script: |
@@ -60,7 +75,7 @@
           fi
 
           echo "Found profile UUID: $UUID"
-          echo "PROFILE_UUID=$UUID" >> "${CM_ENV}"
+          echo "PROFILE_UUID=$UUID" >> "$CM_ENV"
 
       - name: Build iOS app (archive)
         script: |
