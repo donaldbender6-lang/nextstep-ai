@@ -85,6 +85,8 @@
           </plist>
           EOF
 
+	  xcode-project use-profiles
+
           xcodebuild \
             -exportArchive \
             -archivePath build/App.xcarchive \
