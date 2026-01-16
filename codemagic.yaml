@@ -1,6 +1,6 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Manual Signing Fully Self-Contained)
+    name: iOS App Store Build (Manual Signing – Env Vars)
     max_build_duration: 60
 
     environment:
@@ -14,6 +14,13 @@
         BUNDLE_ID: "com.donal.nextstepai"
 
     scripts:
+      - name: Verify signing env vars (presence only)
+        script: |
+          echo "IOS_CERT_P12_B64: ${IOS_CERT_P12_B64:+PRESENT}${IOS_CERT_P12_B64:-MISSING}"
+          echo "IOS_CERT_PASSWORD: ${IOS_CERT_PASSWORD:+PRESENT}${IOS_CERT_PASSWORD:-MISSING}"
+          echo "IOS_PROFILE_B64: ${IOS_PROFILE_B64:+PRESENT}${IOS_PROFILE_B64:-MISSING}"
+          echo "CM_PULL_REQUEST=${CM_PULL_REQUEST:-}"
+
       - name: Install dependencies
         script: |
           npm install
@@ -22,7 +29,7 @@
         script: |
           npx cap sync ios
 
-      - name: Install cert + profile (from env vars)
+      - name: Install signing cert + provisioning profile
         script: |
           set -euo pipefail
 
@@ -32,49 +39,34 @@
 
           keychain initialize
 
+          # Install certificate
           echo "$IOS_CERT_P12_B64" | base64 --decode > /tmp/cert.p12
-          keychain add-certificates --certificate /tmp/cert.p12 --certificate-password "$IOS_CERT_PASSWORD"
+          keychain add-certificates \
+            --certificate /tmp/cert.p12 \
+            --certificate-password "$IOS_CERT_PASSWORD"
 
+          # Install provisioning profile
           PROFILE_TMP="/tmp/profile.mobileprovision"
           echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_TMP"
 
           PROFILE_PLIST="$(security cms -D -i "$PROFILE_TMP")"
           UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")
-          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" || true)
-          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_PLIST" || true)
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_PLIST")
+
+          echo "Profile UUID: $UUID"
+          echo "Profile App ID: $APP_ID"
 
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
           cp "$PROFILE_TMP" "$PROFILE_DIR/$UUID.mobileprovision"
 
-          echo "Installed provisioning profile:"
-          echo "  UUID: $UUID"
-          echo "  Name: ${NAME:-<unknown>}"
-          echo "  AppID: ${APP_ID:-<unknown>}"
+          echo "PROFILE_UUID=$UUID" >> "$CM_ENV"
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
+
           echo "=== PROFILES ==="
-          ls -la "$PROFILE_DIR" || true
-
-          echo "PROFILE_UUID=$UUID" >> "$CM_ENV"
-
-      - name: Create exportOptions.plist
-        script: |
-          cat > exportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-          </dict>
-          </plist>
-          EOF
+          ls -la "$PROFILE_DIR"
 
       - name: Build iOS app (archive)
         script: |
@@ -97,6 +89,21 @@
       - name: Export IPA
         script: |
           set -euo pipefail
+
+          cat > exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+          </dict>
+          </plist>
+          EOF
 
           xcodebuild \
             -exportArchive \
