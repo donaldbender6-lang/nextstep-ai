@@ -1,6 +1,6 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Codemagic Signing)
+    name: iOS Build (App Store - Forced Distribution Signing)
     max_build_duration: 60
 
     environment:
@@ -27,25 +27,29 @@
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
-
           echo "=== PROFILES ==="
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
 
-      - name: Build iOS app (archive)
+      - name: Build iOS app (archive) - force App Store signing
         script: |
           set -euo pipefail
+
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
+            -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -archivePath build/App.xcarchive \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
       - name: Export IPA
         script: |
           set -euo pipefail
+
           cat > exportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,6 +59,8 @@
             <string>app-store</string>
             <key>teamID</key>
             <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
           </dict>
           </plist>
           EOF
