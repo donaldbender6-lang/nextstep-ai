@@ -1,16 +1,17 @@
 ﻿workflows:
   ios-workflow:
-    name: iOS Build (App Store - Hard Forced Profile)
+    name: iOS Build (App Store - Manual Signing Fully Self-Contained)
     max_build_duration: 60
 
     environment:
       node: latest
       xcode: latest
       cocoapods: default
+      groups:
+        - ios_signing
       vars:
         TEAM_ID: "CKDUJJL6BZ"
         BUNDLE_ID: "com.donal.nextstepai"
-        PROFILE_NAME: "nextstep-ai-appstore"
 
     scripts:
       - name: Install dependencies
@@ -21,18 +22,44 @@
         script: |
           npx cap sync ios
 
-      - name: Setup signing (Codemagic)
+      - name: Install cert + profile (from env vars)
         script: |
           set -euo pipefail
+
+          : "${IOS_CERT_P12_B64:?Missing IOS_CERT_P12_B64}"
+          : "${IOS_CERT_PASSWORD:?Missing IOS_CERT_PASSWORD}"
+          : "${IOS_PROFILE_B64:?Missing IOS_PROFILE_B64}"
+
           keychain initialize
-          xcode-project use-profiles --verbose
+
+          echo "$IOS_CERT_P12_B64" | base64 --decode > /tmp/cert.p12
+          keychain add-certificates --certificate /tmp/cert.p12 --certificate-password "$IOS_CERT_PASSWORD"
+
+          PROFILE_TMP="/tmp/profile.mobileprovision"
+          echo "$IOS_PROFILE_B64" | base64 --decode > "$PROFILE_TMP"
+
+          PROFILE_PLIST="$(security cms -D -i "$PROFILE_TMP")"
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$PROFILE_PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$PROFILE_PLIST" || true)
+          APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<< "$PROFILE_PLIST" || true)
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          cp "$PROFILE_TMP" "$PROFILE_DIR/$UUID.mobileprovision"
+
+          echo "Installed provisioning profile:"
+          echo "  UUID: $UUID"
+          echo "  Name: ${NAME:-<unknown>}"
+          echo "  AppID: ${APP_ID:-<unknown>}"
 
           echo "=== SIGNING IDENTITIES ==="
           security find-identity -v -p codesigning || true
           echo "=== PROFILES ==="
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" || true
+          ls -la "$PROFILE_DIR" || true
 
-      - name: Create exportOptions.plist (explicit profile mapping)
+          echo "PROFILE_UUID=$UUID" >> "$CM_ENV"
+
+      - name: Create exportOptions.plist
         script: |
           cat > exportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -45,16 +72,11 @@
             <string>${TEAM_ID}</string>
             <key>signingStyle</key>
             <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
           </dict>
           </plist>
           EOF
 
-      - name: Build iOS app (archive) - force profile + distribution cert
+      - name: Build iOS app (archive)
         script: |
           set -euo pipefail
 
@@ -69,7 +91,7 @@
             PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME}" \
+            PROVISIONING_PROFILE="${PROFILE_UUID}" \
             archive
 
       - name: Export IPA
