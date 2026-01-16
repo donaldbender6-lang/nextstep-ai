@@ -55,6 +55,8 @@
         script: |
           set -euo pipefail
 
+	xcode-project use-profiles
+
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
@@ -85,7 +87,6 @@
           </plist>
           EOF
 
-	  xcode-project use-profiles
 
           xcodebuild \
             -exportArchive \
