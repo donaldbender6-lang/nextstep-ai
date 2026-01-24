@@ -1,4 +1,4 @@
-﻿workflows:
+workflows:
   ios-release:
     name: iOS Release (ASC API key signing)
     max_build_duration: 60
@@ -31,9 +31,9 @@
           KEY_PATH="$HOME/private_keys/AuthKey.p8"
 
           # IMPORTANT:
-          # APP_STORE_CONNECT_PRI should be the FULL .p8 contents including BEGIN/END lines
+          # APP_STORE_CONNECT_PRIVATE_KEY should be the FULL .p8 contents including BEGIN/END lines
           # Keep it as a Secure env var in Codemagic.
-          echo "$APP_STORE_CONNECT_PRI" > "$KEY_PATH"
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
 
           echo "Wrote API key to: $KEY_PATH"
